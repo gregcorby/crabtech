@@ -1,0 +1,39 @@
+{
+  "name": "@managed-bot/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:generate": "prisma generate"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/rate-limit": "^10.0.0",
+    "@fastify/swagger": "^9.0.0",
+    "@fastify/swagger-ui": "^5.0.0",
+    "@managed-bot/infra": "workspace:*",
+    "@managed-bot/shared": "workspace:*",
+    "@prisma/client": "^6.0.0",
+    "bcryptjs": "^2.4.3",
+    "fastify": "^5.0.0",
+    "http-proxy": "^1.18.0",
+    "jsonwebtoken": "^9.0.0",
+    "zod": "^3.24.0",
+    "zod-to-json-schema": "^3.25.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/http-proxy": "^1.17.0",
+    "@types/jsonwebtoken": "^9.0.0",
+    "prisma": "^6.0.0",
+    "tsx": "^4.0.0"
+  }
+}

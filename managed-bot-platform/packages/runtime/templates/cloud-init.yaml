@@ -1,0 +1,73 @@
+#cloud-config
+
+write_files:
+  - path: /opt/clawdbot/docker-compose.yml
+    permissions: "0644"
+    content: |
+      version: "3.9"
+      services:
+        clawdbot:
+          image: clawdbot/clawdbot:{{CLAWDBOT_VERSION}}
+          restart: unless-stopped
+          ports:
+            - "127.0.0.1:8080:8080"
+          environment:
+            GATEWAY_TOKEN: "{{GATEWAY_TOKEN}}"
+            STATE_DIR: "/data/.clawdbot"
+            WORKSPACE_DIR: "/data/workspace"
+            MODEL_PROVIDER: "{{MODEL_PROVIDER}}"
+            MODEL_PROVIDER_KEY: "{{MODEL_PROVIDER_KEY}}"
+            SYSTEM_INSTRUCTIONS: "{{SYSTEM_INSTRUCTIONS}}"
+          volumes:
+            - {{MOUNT_PATH}}:/data
+
+  - path: /opt/clawdbot/health-check.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      curl -sf http://127.0.0.1:8080/health || exit 1
+
+  - path: /etc/systemd/system/clawdbot.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Clawdbot Service
+      Requires=docker.service
+      After=docker.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      WorkingDirectory=/opt/clawdbot
+      ExecStart=/usr/bin/docker compose up -d
+      ExecStop=/usr/bin/docker compose down
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # Mount persistent volume
+  - mkdir -p {{MOUNT_PATH}}
+  - |
+    if ! blkid {{VOLUME_DEVICE}} | grep -q ext4; then
+      mkfs.ext4 {{VOLUME_DEVICE}}
+    fi
+  - mount {{VOLUME_DEVICE}} {{MOUNT_PATH}}
+  - echo "{{VOLUME_DEVICE}} {{MOUNT_PATH}} ext4 defaults,nofail 0 2" >> /etc/fstab
+
+  # Create data directories
+  - mkdir -p {{MOUNT_PATH}}/.clawdbot
+  - mkdir -p {{MOUNT_PATH}}/workspace
+
+  # Install Docker
+  - apt-get update -y
+  - apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update -y
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+  # Start service
+  - systemctl daemon-reload
+  - systemctl enable clawdbot.service
+  - systemctl start clawdbot.service

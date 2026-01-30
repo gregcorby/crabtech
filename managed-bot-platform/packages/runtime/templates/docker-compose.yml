@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  clawdbot:
+    image: clawdbot/clawdbot:{{CLAWDBOT_VERSION}}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      GATEWAY_TOKEN: "{{GATEWAY_TOKEN}}"
+      STATE_DIR: "/data/.clawdbot"
+      WORKSPACE_DIR: "/data/workspace"
+      MODEL_PROVIDER: "{{MODEL_PROVIDER}}"
+      MODEL_PROVIDER_KEY: "{{MODEL_PROVIDER_KEY}}"
+      SYSTEM_INSTRUCTIONS: "{{SYSTEM_INSTRUCTIONS}}"
+    volumes:
+      - {{MOUNT_PATH}}:/data

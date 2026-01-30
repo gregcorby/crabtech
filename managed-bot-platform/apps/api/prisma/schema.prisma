@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  subscription Subscription?
+  bot          Bot?
+
+  @@map("users")
+}
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  userId                 String             @unique @map("user_id")
+  user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status                 SubscriptionStatus @default(inactive)
+  providerCustomerId     String?            @map("provider_customer_id")
+  providerSubscriptionId String?            @map("provider_subscription_id")
+  currentPeriodEnd       DateTime?          @map("current_period_end")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  inactive
+  active
+  past_due
+  canceled
+  suspended
+
+  @@map("subscription_status")
+}
+
+model Bot {
+  id        String      @id @default(cuid())
+  userId    String      @unique @map("user_id")
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  status    BotStatus   @default(provisioning)
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+  secrets   BotSecret[]
+  instance  BotInstance?
+  events    BotEvent[]
+  jobs      Job[]
+
+  @@map("bots")
+}
+
+enum BotStatus {
+  provisioning
+  initializing
+  running
+  stopped
+  error
+  destroying
+  destroyed
+
+  @@map("bot_status")
+}
+
+model BotSecret {
+  id             String   @id @default(cuid())
+  botId          String   @map("bot_id")
+  bot            Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  key            String
+  valueEncrypted String   @map("value_encrypted")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([botId, key])
+  @@map("bot_secrets")
+}
+
+model BotInstance {
+  id                 String         @id @default(cuid())
+  botId              String         @unique @map("bot_id")
+  bot                Bot            @relation(fields: [botId], references: [id], onDelete: Cascade)
+  provider           CloudProvider
+  providerInstanceId String         @map("provider_instance_id")
+  providerVolumeId   String?        @map("provider_volume_id")
+  region             String
+  size               String
+  ipAddress          String?        @map("ip_address")
+  createdAt          DateTime       @default(now()) @map("created_at")
+
+  @@map("bot_instances")
+}
+
+enum CloudProvider {
+  digitalocean
+  fake
+
+  @@map("cloud_provider")
+}
+
+model BotEvent {
+  id          String   @id @default(cuid())
+  botId       String   @map("bot_id")
+  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  type        String
+  payloadJson String?  @map("payload_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([botId, createdAt])
+  @@map("bot_events")
+}
+
+model Job {
+  id        String    @id @default(cuid())
+  botId     String    @map("bot_id")
+  bot       Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  type      JobType
+  status    JobStatus @default(pending)
+  attempts  Int       @default(0)
+  lastError String?   @map("last_error")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@map("jobs")
+}
+
+enum JobType {
+  PROVISION_BOT
+  STOP_BOT
+  RESTART_BOT
+  DESTROY_BOT
+  HEALTH_POLL
+  SUSPEND_BOT
+  RESUME_BOT
+  DESTROY_BOT_SUBSCRIPTION_ENDED
+
+  @@map("job_type")
+}
+
+enum JobStatus {
+  pending
+  processing
+  completed
+  failed
+  retrying
+
+  @@map("job_status")
+}
