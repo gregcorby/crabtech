@@ -8,12 +8,14 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/worker.ts",
+    "start": "node dist/worker.js"
   },
   "dependencies": {
     "@managed-bot/shared": "workspace:*",
     "@managed-bot/infra": "workspace:*",
     "@managed-bot/runtime": "workspace:*",
+    "@prisma/client": "^6.0.0",
     "bullmq": "^5.0.0",
     "ioredis": "^5.4.0"
   }
