@@ -1,10 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeProvider } from "@managed-bot/infra";
 import type { BotStatus } from "@managed-bot/shared";
+import { ProviderError, RetryableProviderError, encrypt } from "@managed-bot/shared";
+import { renderCloudInit } from "@managed-bot/runtime";
 import { JobProcessor } from "./processor.js";
 import type { BotRepository } from "./processor.js";
 import type { AnyJobData, ProvisionJobData, StopJobData, DestroyJobData } from "./jobs.js";
-import { ProviderError, RetryableProviderError } from "@managed-bot/shared";
+
+const TEST_MASTER_KEY = "test-master-key-at-least-32-chars-long!!";
 
 class InMemoryBotRepository implements BotRepository {
   private statuses = new Map<string, BotStatus>();
@@ -17,9 +20,14 @@ class InMemoryBotRepository implements BotRepository {
     ipAddress: string | null;
   }>();
   private events: Array<{ botId: string; type: string; payload?: Record<string, unknown> }> = [];
+  private secrets = new Map<string, { key: string; valueEncrypted: string }[]>();
 
   seedBot(botId: string, status: BotStatus): void {
     this.statuses.set(botId, status);
+  }
+
+  seedSecrets(botId: string, secrets: { key: string; valueEncrypted: string }[]): void {
+    this.secrets.set(botId, secrets);
   }
 
   async getBotStatus(botId: string): Promise<BotStatus | null> {
@@ -49,6 +57,10 @@ class InMemoryBotRepository implements BotRepository {
     this.events.push({ botId, type, payload });
   }
 
+  async getBotSecrets(botId: string): Promise<{ key: string; valueEncrypted: string }[]> {
+    return this.secrets.get(botId) ?? [];
+  }
+
   getStatus(botId: string): BotStatus | undefined {
     return this.statuses.get(botId);
   }
@@ -71,6 +83,10 @@ describe("JobProcessor", () => {
     provider = new FakeProvider();
     repo = new InMemoryBotRepository();
     processor = new JobProcessor({ provider, repo });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   describe("PROVISION_BOT", () => {
@@ -99,13 +115,118 @@ describe("JobProcessor", () => {
       expect(instance!.ipAddress).toBeDefined();
 
       const events = repo.getEvents(botId);
-      expect(events).toHaveLength(1);
-      expect(events[0].type).toBe("status_changed");
-      expect(events[0].payload).toEqual({
+      const statusEvent = events.find((e) => e.type === "status_changed");
+      expect(statusEvent).toBeDefined();
+      expect(statusEvent!.payload).toEqual({
         from: "provisioning",
         to: "running",
         jobType: "PROVISION_BOT",
       });
+    });
+
+    it("configures firewall when PLATFORM_PROXY_IPS is set", async () => {
+      const botId = "bot-fw-1";
+      repo.seedBot(botId, "provisioning");
+      vi.stubEnv("PLATFORM_PROXY_IPS", "10.0.0.1, 10.0.0.2 , 10.0.0.3");
+
+      const job: ProvisionJobData = {
+        type: "PROVISION_BOT",
+        botId,
+        userId: "user-1",
+        region: "nyc3",
+        size: "s-1vcpu-1gb",
+      };
+
+      await processor.process(job);
+
+      const fwCalls = provider.getFirewallCalls();
+      expect(fwCalls).toHaveLength(1);
+      expect(fwCalls[0].botId).toBe(botId);
+      expect(fwCalls[0].allowedInboundIps).toEqual(["10.0.0.1", "10.0.0.2", "10.0.0.3"]);
+      expect(fwCalls[0].instanceId).toMatch(/^fake-instance-/);
+    });
+
+    it("skips firewall configuration when PLATFORM_PROXY_IPS is unset", async () => {
+      const botId = "bot-fw-2";
+      repo.seedBot(botId, "provisioning");
+      delete process.env.PLATFORM_PROXY_IPS;
+
+      const job: ProvisionJobData = {
+        type: "PROVISION_BOT",
+        botId,
+        userId: "user-1",
+        region: "nyc3",
+        size: "s-1vcpu-1gb",
+      };
+
+      await processor.process(job);
+
+      expect(provider.getFirewallCalls()).toHaveLength(0);
+      // Provision still succeeds
+      expect(repo.getStatus(botId)).toBe("running");
+    });
+
+    it("renders userData from encrypted secrets with no unsubstituted placeholders", async () => {
+      const botId = "bot-secrets-1";
+      repo.seedBot(botId, "provisioning");
+      vi.stubEnv("SECRETS_MASTER_KEY", TEST_MASTER_KEY);
+
+      const modelKey = "sk-test-key-12345";
+      const modelProvider = "openai";
+      const systemInstructions = "You are a helpful bot.";
+
+      repo.seedSecrets(botId, [
+        { key: "model_provider_key", valueEncrypted: encrypt(modelKey, TEST_MASTER_KEY) },
+        { key: "model_provider", valueEncrypted: encrypt(modelProvider, TEST_MASTER_KEY) },
+        { key: "system_instructions", valueEncrypted: encrypt(systemInstructions, TEST_MASTER_KEY) },
+      ]);
+
+      const job: ProvisionJobData = {
+        type: "PROVISION_BOT",
+        botId,
+        userId: "user-1",
+        region: "nyc3",
+        size: "s-1vcpu-1gb",
+      };
+
+      await processor.process(job);
+
+      const capturedUserData = provider.getCapturedUserData(botId);
+      expect(capturedUserData).toBeDefined();
+      // No unsubstituted {{…}} placeholders remain
+      expect(capturedUserData).not.toMatch(/\{\{[^}]+\}\}/);
+      // Decrypted secret values are rendered into userData
+      expect(capturedUserData).toContain(modelKey);
+      expect(capturedUserData).toContain(modelProvider);
+      expect(capturedUserData).toContain(systemInstructions);
+    });
+
+    it("configureFirewall receives parsed and trimmed platform IPs", async () => {
+      const botId = "bot-fw-parse-1";
+      repo.seedBot(botId, "provisioning");
+      vi.stubEnv("SECRETS_MASTER_KEY", TEST_MASTER_KEY);
+      vi.stubEnv("PLATFORM_PROXY_IPS", "  192.168.1.1 , 172.16.0.1,  10.0.0.5  ");
+
+      const job: ProvisionJobData = {
+        type: "PROVISION_BOT",
+        botId,
+        userId: "user-1",
+        region: "nyc3",
+        size: "s-1vcpu-1gb",
+      };
+
+      await processor.process(job);
+
+      const fwCalls = provider.getFirewallCalls();
+      expect(fwCalls).toHaveLength(1);
+      expect(fwCalls[0].botId).toBe(botId);
+      expect(fwCalls[0].instanceId).toMatch(/^fake-instance-/);
+      // IPs are trimmed and parsed correctly
+      expect(fwCalls[0].allowedInboundIps).toEqual([
+        "192.168.1.1",
+        "172.16.0.1",
+        "10.0.0.5",
+      ]);
     });
 
     it("retries on RetryableProviderError", async () => {
@@ -172,9 +293,9 @@ describe("JobProcessor", () => {
       expect(repo.getStatus(botId)).toBe("error");
 
       const events = repo.getEvents(botId);
-      expect(events).toHaveLength(1);
-      expect(events[0].type).toBe("job_failed");
-      expect(events[0].payload?.error).toBe("Region unavailable");
+      const failEvent = events.find((e) => e.type === "job_failed");
+      expect(failEvent).toBeDefined();
+      expect(failEvent!.payload?.error).toBe("Region unavailable");
     });
   });
 
@@ -305,5 +426,54 @@ describe("JobProcessor", () => {
       expect(repo.getStatus(botId)).toBe("running");
       expect(provider.getInstanceCount()).toBe(0);
     });
+  });
+});
+
+describe("Dry-run template rendering", () => {
+  it("renderCloudInit with sample params produces output with no unsubstituted variables", () => {
+    const params = {
+      botId: "dry-run-bot-1",
+      gatewayToken: "tok_abc123def456",
+      clawdbotVersion: "1.2.3",
+      modelProviderKey: "sk-test-dry-run",
+      modelProvider: "openai",
+      systemInstructions: "Be helpful and concise.",
+      volumeDevice: "/dev/sda1",
+      mountPath: "/data",
+    };
+
+    const rendered = renderCloudInit(params);
+
+    // Must not contain any {{…}} placeholders
+    expect(rendered).not.toMatch(/\{\{[^}]+\}\}/);
+
+    // Template-substituted values must appear in the output
+    expect(rendered).toContain(params.gatewayToken);
+    expect(rendered).toContain(params.clawdbotVersion);
+    expect(rendered).toContain(params.modelProviderKey);
+    expect(rendered).toContain(params.modelProvider);
+    expect(rendered).toContain(params.systemInstructions);
+    expect(rendered).toContain(params.volumeDevice);
+    expect(rendered).toContain(params.mountPath);
+  });
+
+  it("renderCloudInit with optional params omitted still has no unsubstituted variables", () => {
+    const params = {
+      botId: "dry-run-bot-2",
+      gatewayToken: "tok_minimal",
+      clawdbotVersion: "latest",
+      volumeDevice: "/dev/vda1",
+      mountPath: "/mnt/data",
+    };
+
+    const rendered = renderCloudInit(params);
+
+    // Must not contain any {{…}} placeholders
+    expect(rendered).not.toMatch(/\{\{[^}]+\}\}/);
+
+    expect(rendered).toContain(params.gatewayToken);
+    expect(rendered).toContain(params.clawdbotVersion);
+    expect(rendered).toContain(params.volumeDevice);
+    expect(rendered).toContain(params.mountPath);
   });
 });

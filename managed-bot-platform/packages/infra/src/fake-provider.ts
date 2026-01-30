@@ -32,6 +32,7 @@ export class FakeProvider implements ComputeProvider {
   private instances = new Map<string, FakeInstance>();
   private volumes = new Map<string, FakeVolume>();
   private idempotencyMap = new Map<string, ProviderResourceIds>();
+  private firewallCalls: FirewallParams[] = [];
 
   async createInstance(params: CreateInstanceParams): Promise<ProviderResourceIds> {
     // Idempotency: return existing if same botId
@@ -84,8 +85,8 @@ export class FakeProvider implements ComputeProvider {
     return { volumeId };
   }
 
-  async configureFirewall(_params: FirewallParams): Promise<void> {
-    // No-op for fake provider
+  async configureFirewall(params: FirewallParams): Promise<void> {
+    this.firewallCalls.push(params);
   }
 
   async injectBootstrap(_params: BootstrapParams): Promise<void> {
@@ -118,9 +119,38 @@ export class FakeProvider implements ComputeProvider {
     return this.volumes.size;
   }
 
+  getFirewallCalls(): FirewallParams[] {
+    return this.firewallCalls;
+  }
+
+  /** Return the captured userData for the instance created with the given botId. */
+  getCapturedUserData(botId: string): string | undefined {
+    for (const inst of this.instances.values()) {
+      if (inst.botId === botId) return inst.userData;
+    }
+    return undefined;
+  }
+
+  /** Return the captured CreateInstanceParams for the instance created with the given botId. */
+  getCapturedCreateParams(botId: string): CreateInstanceParams | undefined {
+    for (const inst of this.instances.values()) {
+      if (inst.botId === botId) {
+        return {
+          botId: inst.botId,
+          region: "", // not stored; use getCapturedUserData for userData
+          size: "",
+          userData: inst.userData,
+          tags: inst.tags,
+        };
+      }
+    }
+    return undefined;
+  }
+
   reset(): void {
     this.instances.clear();
     this.volumes.clear();
     this.idempotencyMap.clear();
+    this.firewallCalls = [];
   }
 }

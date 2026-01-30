@@ -1,5 +1,7 @@
+import { randomBytes } from "node:crypto";
 import type { ComputeProvider } from "@managed-bot/infra";
-import { createLogger, type Logger, ProviderError, RetryableProviderError } from "@managed-bot/shared";
+import { createLogger, type Logger, ProviderError, RetryableProviderError, decrypt } from "@managed-bot/shared";
+import { renderCloudInit } from "@managed-bot/runtime";
 import type { AnyJobData, ProvisionJobData, DestroyJobData } from "./jobs.js";
 import { getTargetStatus, getErrorStatus, canTransition } from "./state-machine.js";
 import type { BotStatus } from "@managed-bot/shared";
@@ -17,6 +19,7 @@ export interface BotRepository {
   }): Promise<void>;
   deleteBotInstance(botId: string): Promise<void>;
   addBotEvent(botId: string, type: string, payload?: Record<string, unknown>): Promise<void>;
+  getBotSecrets(botId: string): Promise<{ key: string; valueEncrypted: string }[]>;
 }
 
 export interface ProcessorDeps {
@@ -103,11 +106,35 @@ export class JobProcessor {
   }
 
   private async handleProvision(job: ProvisionJobData): Promise<void> {
+    const encryptedSecrets = await this.repo.getBotSecrets(job.botId);
+    const secrets = new Map<string, string>();
+    for (const s of encryptedSecrets) {
+      secrets.set(s.key, decrypt(s.valueEncrypted));
+    }
+
+    // Use existing gateway_token secret or generate a new one
+    let gatewayToken = secrets.get("gateway_token") ?? "";
+    if (!gatewayToken) {
+      gatewayToken = randomBytes(32).toString("hex");
+      await this.repo.addBotEvent(job.botId, "gateway_token_generated");
+    }
+
+    const userData = renderCloudInit({
+      botId: job.botId,
+      gatewayToken,
+      clawdbotVersion: secrets.get("clawdbot_version") ?? "latest",
+      modelProviderKey: secrets.get("model_provider_key"),
+      modelProvider: secrets.get("model_provider"),
+      systemInstructions: secrets.get("system_instructions"),
+      volumeDevice: "/dev/sda1",
+      mountPath: "/data",
+    });
+
     const resources = await this.provider.createInstance({
       botId: job.botId,
       region: job.region,
       size: job.size,
-      userData: "",
+      userData,
       tags: [`bot:${job.botId}`, `user:${job.userId}`],
     });
 
@@ -119,6 +146,23 @@ export class JobProcessor {
       size: job.size,
       ipAddress: resources.ipAddress,
     });
+
+    const proxyIpsRaw = process.env.PLATFORM_PROXY_IPS ?? "";
+    const allowedInboundIps = proxyIpsRaw
+      .split(",")
+      .map((ip) => ip.trim())
+      .filter(Boolean);
+
+    if (allowedInboundIps.length > 0) {
+      await this.provider.configureFirewall({
+        botId: job.botId,
+        instanceId: resources.instanceId,
+        allowedInboundIps,
+      });
+      this.logger.info(`Firewall configured for bot ${job.botId} instance ${resources.instanceId}`);
+    } else {
+      this.logger.warn(`PLATFORM_PROXY_IPS not set, skipping firewall configuration for bot ${job.botId}`);
+    }
   }
 
   private async handleStop(job: AnyJobData & { instanceId: string }): Promise<void> {

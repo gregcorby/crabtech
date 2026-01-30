@@ -59,6 +59,14 @@ export class PrismaBotRepository implements BotRepository {
     });
   }
 
+  async getBotSecrets(botId: string): Promise<{ key: string; valueEncrypted: string }[]> {
+    const secrets = await this.prisma.botSecret.findMany({
+      where: { botId },
+      select: { key: true, valueEncrypted: true },
+    });
+    return secrets;
+  }
+
   async addBotEvent(
     botId: string,
     type: string,
