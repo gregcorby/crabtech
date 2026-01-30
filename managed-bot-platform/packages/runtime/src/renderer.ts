@@ -6,6 +6,20 @@ import { type BootstrapParams, bootstrapParamsSchema } from "./types.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = resolve(__dirname, "../templates");
 
+/**
+ * Escape a string for safe inclusion inside a YAML double-quoted scalar.
+ * Handles backslashes, double quotes, and newlines so that user-supplied
+ * values cannot break the surrounding YAML/compose structure.
+ */
+function escapeForYamlDoubleQuote(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "\\r")
+    .replaceAll("\t", "\\t");
+}
+
 function renderTemplate(template: string, vars: Record<string, string>): string {
   let result = template;
   for (const [key, value] of Object.entries(vars)) {
@@ -23,11 +37,11 @@ export function renderCloudInit(params: BootstrapParams): string {
   const template = loadTemplate("cloud-init.yaml");
   return renderTemplate(template, {
     BOT_ID: validated.botId,
-    GATEWAY_TOKEN: validated.gatewayToken,
+    GATEWAY_TOKEN: escapeForYamlDoubleQuote(validated.gatewayToken),
     CLAWDBOT_VERSION: validated.clawdbotVersion,
-    MODEL_PROVIDER_KEY: validated.modelProviderKey ?? "",
-    MODEL_PROVIDER: validated.modelProvider ?? "",
-    SYSTEM_INSTRUCTIONS: validated.systemInstructions ?? "",
+    MODEL_PROVIDER_KEY: escapeForYamlDoubleQuote(validated.modelProviderKey ?? ""),
+    MODEL_PROVIDER: escapeForYamlDoubleQuote(validated.modelProvider ?? ""),
+    SYSTEM_INSTRUCTIONS: escapeForYamlDoubleQuote(validated.systemInstructions ?? ""),
     VOLUME_DEVICE: validated.volumeDevice,
     MOUNT_PATH: validated.mountPath,
   });
@@ -38,11 +52,11 @@ export function renderDockerCompose(params: BootstrapParams): string {
   const template = loadTemplate("docker-compose.yml");
   return renderTemplate(template, {
     BOT_ID: validated.botId,
-    GATEWAY_TOKEN: validated.gatewayToken,
+    GATEWAY_TOKEN: escapeForYamlDoubleQuote(validated.gatewayToken),
     CLAWDBOT_VERSION: validated.clawdbotVersion,
-    MODEL_PROVIDER_KEY: validated.modelProviderKey ?? "",
-    MODEL_PROVIDER: validated.modelProvider ?? "",
-    SYSTEM_INSTRUCTIONS: validated.systemInstructions ?? "",
+    MODEL_PROVIDER_KEY: escapeForYamlDoubleQuote(validated.modelProviderKey ?? ""),
+    MODEL_PROVIDER: escapeForYamlDoubleQuote(validated.modelProvider ?? ""),
+    SYSTEM_INSTRUCTIONS: escapeForYamlDoubleQuote(validated.systemInstructions ?? ""),
     MOUNT_PATH: validated.mountPath,
   });
 }
