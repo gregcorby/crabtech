@@ -4,6 +4,7 @@ import fastifyCors from "@fastify/cors";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
 import fastifyRateLimit from "@fastify/rate-limit";
+import rawBody from "fastify-raw-body";
 import { AppError } from "@managed-bot/shared";
 import { authRoutes } from "./routes/auth.js";
 import { botRoutes } from "./routes/bot.js";
@@ -29,6 +30,12 @@ export async function buildApp() {
   await app.register(fastifyRateLimit, {
     max: 100,
     timeWindow: "1 minute",
+  });
+
+  await app.register(rawBody, {
+    global: false,
+    runFirst: true,
+    encoding: "utf8",
   });
 
   await app.register(fastifySwagger, {

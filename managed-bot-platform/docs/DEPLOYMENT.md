@@ -12,9 +12,14 @@
 
 ### Production Only
 - [ ] `DIGITALOCEAN_TOKEN` - DigitalOcean API token
-- [ ] `STRIPE_SECRET_KEY` - Stripe secret key
-- [ ] `STRIPE_WEBHOOK_SECRET` - Stripe webhook signing secret
+- [ ] `STRIPE_SECRET_KEY` - Stripe API secret key (from Stripe dashboard → Developers → API keys)
+- [ ] `STRIPE_WEBHOOK_SECRET` - Webhook signing secret (from Stripe dashboard → Developers → Webhooks → endpoint signing secret)
+- [ ] `STRIPE_PRICE_ID` - The price ID for the monthly subscription plan (e.g., `price_xxx` from Stripe Products)
 - [ ] `NODE_ENV=production`
+
+### Redis (Worker Queue)
+- [ ] `REDIS_HOST` - Redis server host (default: `localhost`)
+- [ ] `REDIS_PORT` - Redis server port (default: `6379`)
 
 ## Infrastructure Checklist
 

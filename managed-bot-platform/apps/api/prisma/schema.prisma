@@ -116,6 +116,15 @@ model BotEvent {
   @@map("bot_events")
 }
 
+model WebhookEvent {
+  id            String   @id @default(cuid())
+  stripeEventId String   @unique @map("stripe_event_id")
+  eventType     String   @map("event_type")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("webhook_events")
+}
+
 model Job {
   id        String    @id @default(cuid())
   botId     String    @map("bot_id")

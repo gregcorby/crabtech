@@ -11,6 +11,7 @@ import {
 import { prisma } from "../lib/prisma.js";
 import { requireAuth, getUser } from "../lib/auth.js";
 import { zodBody } from "../lib/schema.js";
+import { enqueueJob } from "../lib/queue.js";
 
 const RESTART_COOLDOWN_MS = 60_000; // 1 minute between restarts
 
@@ -55,13 +56,12 @@ export async function botRoutes(app: FastifyInstance) {
       },
     });
 
-    // TODO: Enqueue PROVISION_BOT job via BullMQ
-    await prisma.job.create({
-      data: {
-        botId: bot.id,
-        type: "PROVISION_BOT",
-        status: "pending",
-      },
+    await enqueueJob({
+      type: "PROVISION_BOT",
+      botId: bot.id,
+      userId,
+      region: "nyc1",
+      size: "s-1vcpu-1gb",
     });
 
     return {
@@ -117,13 +117,14 @@ export async function botRoutes(app: FastifyInstance) {
       data: { status: "stopped" },
     });
 
-    await prisma.job.create({
-      data: {
-        botId: bot.id,
+    if (bot.instance) {
+      await enqueueJob({
         type: "STOP_BOT",
-        status: "pending",
-      },
-    });
+        botId: bot.id,
+        userId,
+        instanceId: bot.instance.id,
+      });
+    }
 
     await prisma.botEvent.create({
       data: {
@@ -157,13 +158,14 @@ export async function botRoutes(app: FastifyInstance) {
       throw new BadRequestError("Restart throttled. Please wait before restarting again.");
     }
 
-    await prisma.job.create({
-      data: {
-        botId: bot.id,
+    if (bot.instance) {
+      await enqueueJob({
         type: "RESTART_BOT",
-        status: "pending",
-      },
-    });
+        botId: bot.id,
+        userId,
+        instanceId: bot.instance.id,
+      });
+    }
 
     await prisma.botEvent.create({
       data: {
