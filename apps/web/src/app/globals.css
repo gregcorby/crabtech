@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --z-dropdown: 100;
+  --z-modal: 200;
+  --z-toast: 300;
+  --z-tooltip: 400;
+}
+
+@layer base {
+  html {
+    @apply antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-neutral-50 text-neutral-900 font-sans;
+  }
+
+  ::selection {
+    @apply bg-primary-500/20;
+  }
+
+  /* Skip to main content link */
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-tooltip
+      focus:rounded-lg focus:bg-primary-500 focus:px-4 focus:py-2 focus:text-white
+      focus:shadow-elevated focus:outline-none;
+  }
+}
+
+@layer components {
+  .skeleton {
+    @apply animate-skeleton-pulse rounded-lg bg-neutral-200;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
